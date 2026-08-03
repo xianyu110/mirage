@@ -21,8 +21,10 @@ import type { OpRecord } from '../observe/record.ts'
 import { type OpKwargs, OpsRegistry } from '../ops/registry.ts'
 import { assertMountAllowed } from '../context/session_context.ts'
 import type { Resource } from '../resource/base.ts'
+import { BIN_PREFIX, BinViewResource } from '../resource/bin/bin.ts'
 import { HISTORY_PREFIX, HistoryViewResource } from '../resource/history/history.ts'
-import { resourceStateRequiresOverride } from '../resource/secrets.ts'
+import { binEntries } from './cli/view.ts'
+import { hasRedactedSecret, resourceStateRequiresOverride } from '../resource/secrets.ts'
 import { GENERAL_COMMANDS } from '../commands/builtin/general/index.ts'
 import { cliSpecFor } from '../commands/cli/specs.ts'
 import type { CLISpec } from '../commands/cli/types.ts'
@@ -183,6 +185,7 @@ export class Workspace {
       this.registry.clis.install(cliName, cliSpec, cliConfig)
     }
     this.policyRouter = new PolicyRouter(
+      this.registry,
       this.runtimes,
       this.policy,
       this.sessionManager,
@@ -191,6 +194,11 @@ export class Workspace {
     )
     this.observer = new Observer(stores.observe)
     this.registry.mount(HISTORY_PREFIX, new HistoryViewResource(this.observer), MountMode.READ)
+    this.registry.mount(
+      BIN_PREFIX,
+      new BinViewResource(() => binEntries(this.registry.clis)),
+      MountMode.READ,
+    )
     this.cache = options.cache ?? new RAMFileCacheStore({ limit: options.cacheLimit ?? '512MB' })
     this.registry.attachFileCache(this.cache)
     // Only an explicit agentId claims the workspace user; a bare launch
@@ -837,10 +845,11 @@ export class Workspace {
     source: string | Uint8Array,
     options: WorkspaceOptions = {},
     overrides: Record<string, Resource> = {},
+    cliOverrides: Record<string, Record<string, unknown>> = {},
   ): Promise<InstanceType<T>> {
     const bytes = typeof source === 'string' ? readFileBytes(source) : source
     const state = (await readSnapshotTar(bytes)) as WorkspaceStateDict
-    return this.fromState(state, options, overrides)
+    return this.fromState(state, options, overrides, cliOverrides)
   }
 
   static async fromState<T extends typeof Workspace>(
@@ -848,8 +857,9 @@ export class Workspace {
     state: WorkspaceStateDict,
     options: WorkspaceOptions = {},
     overrides: Record<string, Resource> = {},
+    cliOverrides: Record<string, Record<string, unknown>> = {},
   ): Promise<InstanceType<T>> {
-    const ws = await this._fromState(state, options, overrides)
+    const ws = await this._fromState(state, options, overrides, cliOverrides)
     ws.installDriftState(state, options.driftPolicy ?? DriftPolicy.STRICT)
     return ws
   }
@@ -859,8 +869,9 @@ export class Workspace {
     state: WorkspaceStateDict,
     options: WorkspaceOptions = {},
     overrides: Record<string, Resource> = {},
+    cliOverrides: Record<string, Record<string, unknown>> = {},
   ): Promise<InstanceType<T>> {
-    const args = buildMountArgs(state, overrides)
+    const args = buildMountArgs(state, overrides, cliOverrides)
     const resources: Record<string, MountSpec> = {}
     for (const [prefix, [resource, mode]] of Object.entries(args.mountArgs)) {
       resources[prefix] = [resource, mode]
@@ -868,6 +879,7 @@ export class Workspace {
     const mergedOptions: WorkspaceOptions = {
       ...(args.defaultSessionId !== undefined ? { sessionId: args.defaultSessionId } : {}),
       ...(args.defaultAgentId !== null ? { agentId: args.defaultAgentId } : {}),
+      ...(args.clis !== undefined ? { clis: args.clis } : {}),
       ...options,
     }
     const ws = new this(resources, mergedOptions) as InstanceType<T>
@@ -900,8 +912,20 @@ export class Workspace {
         }
       }
     }
+    // A CLI saved with a redacted config cannot reinstall from the state
+    // dict alone; a same-process copy still holds the live validated
+    // config, so it rides as a fresh-config override the way remote
+    // mounts share their live resources.
+    const cliOverrides: Record<string, Record<string, unknown>> = {}
+    for (const snap of state.clis ?? []) {
+      if (!hasRedactedSecret(snap.config)) continue
+      const install = this.registry.clis.get(snap.name)
+      if (install !== null && install.config !== null && typeof install.config === 'object') {
+        cliOverrides[snap.name] = install.config as Record<string, unknown>
+      }
+    }
     const Ctor = this.constructor as typeof Workspace
-    return (await Ctor._fromState(state, opts, overrides)) as this
+    return (await Ctor._fromState(state, opts, overrides, cliOverrides)) as this
   }
 
   async close(): Promise<void> {

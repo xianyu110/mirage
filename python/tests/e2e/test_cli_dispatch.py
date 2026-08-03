@@ -158,3 +158,44 @@ async def test_yaml_unknown_cli_key_fails_loud():
     })
     with pytest.raises(ValueError, match="unknown cli 'nope'"):
         Workspace(**cfg.to_workspace_kwargs())
+
+
+@pytest.mark.asyncio
+async def test_bin_view_tracks_the_registry(ws):
+    ws.register_cli("slack-eng", make_tree(), config={"token": "tok"})
+    code, out, _ = await run(ws, "cat /bin/slack-eng")
+    assert code == 0
+    assert out == (b"slack-eng: installed CLI (spec slackish)\n"
+                   b"verbs: message send\n")
+    code, out, _ = await run(ws, "ls /bin")
+    assert code == 0
+    assert b"slack-eng" in out
+    assert b"cat" in out
+    ws.unregister_cli("slack-eng")
+    code, _, err = await run(ws, "cat /bin/slack-eng")
+    assert code == 1
+    assert b"No such file or directory" in err
+
+
+@pytest.mark.asyncio
+async def test_policy_sees_the_cli_fact():
+    denied: list[str | None] = []
+
+    def policy(ctx):
+        denied.append(ctx.commands[0].cli if ctx.commands else None)
+        if ctx.commands and ctx.commands[0].cli == "slack-eng":
+            return {"deny": "cli lines are frozen"}
+        return None
+
+    workspace = Workspace({"/data": (RAMResource(), MountMode.WRITE)},
+                          mode=MountMode.WRITE,
+                          policy=policy)
+    workspace.register_cli("slack-eng", make_tree(), config={"token": "tok"})
+    io = await workspace.execute("slack-eng message send -t x hi")
+    assert io.exit_code == 126
+    err = await materialize(io.stderr) if io.stderr else b""
+    assert b"policy denied" in err
+    assert denied[-1] == "slack-eng"
+    io = await workspace.execute("echo unaffected")
+    assert io.exit_code == 0
+    assert denied[-1] is None

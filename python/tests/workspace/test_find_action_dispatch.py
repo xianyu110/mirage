@@ -211,7 +211,9 @@ def test_delete_removes_emptied_directories() -> None:
         r = await ws.execute("find /tree -delete", session_id="s")
         assert r.exit_code == 0
         assert await r.stderr_str() == ""
-        check = await ws.execute("find / -name tree", session_id="s")
+        # Probe the deleted subtree directly: `find / -name tree`
+        # would now match the /bin/tree command stub.
+        check = await ws.execute("find /tree", session_id="s")
         assert await check.stdout_str() == ""
         await ws.close()
 

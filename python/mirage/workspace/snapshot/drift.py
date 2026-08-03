@@ -200,7 +200,7 @@ def live_only_mount_prefixes(ws) -> list[str]:
     """
     out: list[str] = []
     for m in ws._registry.mounts():
-        if m.prefix in {"/dev/", "/.bash_history/"}:
+        if m.prefix in {"/dev/", "/.bash_history/", "/bin/"}:
             continue
         if not getattr(m.resource, "SUPPORTS_SNAPSHOT", False):
             out.append(m.prefix)

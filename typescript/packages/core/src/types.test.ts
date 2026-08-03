@@ -96,6 +96,7 @@ describe('ResourceName', () => {
     expect(Object.values(ResourceName).sort()).toEqual([
       'aliyun',
       'backblaze',
+      'bin',
       'box',
       'ceph',
       'chroma',

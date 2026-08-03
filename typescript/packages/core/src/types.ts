@@ -225,6 +225,7 @@ export const ResourceName = Object.freeze({
   SCALEWAY: 'scaleway',
   QINGSTOR: 'qingstor',
   HISTORY: 'history',
+  BIN: 'bin',
 } as const)
 
 export type ResourceName = (typeof ResourceName)[keyof typeof ResourceName]

@@ -193,6 +193,7 @@ export { type EventDict, Observer } from './observe/observer.ts'
 export { type ObserverStore, RAMObserverStore } from './observe/store.ts'
 export { NamespaceStore, type NodeFields } from './workspace/mount/namespace/store.ts'
 export { RAMNamespaceStore } from './workspace/mount/namespace/ram.ts'
+export { BIN_PREFIX, BinViewResource } from './resource/bin/bin.ts'
 export { HISTORY_PREFIX, HistoryViewResource } from './resource/history/history.ts'
 export { HISTORY_COMMANDS } from './commands/builtin/history/index.ts'
 export {
@@ -632,6 +633,7 @@ export {
   CLISpec,
   type CLISpecInit,
   type CLIVerbFn,
+  type CLIConfigModel,
   type CLIVerbOpts,
   type WalkFlagBag,
   WalkResult,

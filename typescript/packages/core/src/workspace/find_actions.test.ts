@@ -112,7 +112,9 @@ describe('find action layer', () => {
       const r = await ws.execute('find /tree -delete', { sessionId: 's' })
       expect(r.exitCode).toBe(0)
       expect(r.stderrText).toBe('')
-      const after = await ws.execute('find / -name tree', { sessionId: 's' })
+      // Probe the deleted subtree directly: `find / -name tree` would
+      // now match the /bin/tree command stub.
+      const after = await ws.execute('find /tree', { sessionId: 's' })
       expect(after.stdoutText).toBe('')
     })
   })

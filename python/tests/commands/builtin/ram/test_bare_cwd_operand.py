@@ -15,6 +15,7 @@
 import pytest
 
 from mirage import MountMode, RAMResource, Workspace
+from mirage.workspace.cli.view import bin_entries
 
 
 @pytest.fixture
@@ -65,10 +66,15 @@ async def test_du_bare_measures_the_cwd_dot_spelled(workspace):
     seeded = await _seed(workspace)
     # GNU du with no operand prints ./-spelled rows ending in `.`
     # (sizes are bytes, mirage's documented divergence from blocks);
-    # the implicit /dev child mount rides along as ./dev.
+    # the implicit /bin and /dev child mounts ride along. The /bin
+    # total is the rendered stub table, so derive it instead of
+    # pinning bytes that change with the command set.
     io = await seeded.execute("du", cwd="/")
     assert io.exit_code == 0
-    assert (io.stdout or b"") == b"6\t./sub\n12\t.\n0\t./dev\n"
+    bin_total = sum(
+        len(v) for v in bin_entries(seeded._registry.clis).values())
+    expected = f"6\t./sub\n12\t.\n{bin_total}\t./bin\n0\t./dev\n"
+    assert (io.stdout or b"") == expected.encode()
 
 
 @pytest.mark.asyncio

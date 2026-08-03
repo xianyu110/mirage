@@ -13,6 +13,7 @@
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
 import {
+  BIN_PREFIX,
   HISTORY_PREFIX,
   normMountPrefix,
   type Resource,
@@ -27,7 +28,11 @@ import type {
   WorkspaceInternals,
 } from './schemas.ts'
 
-const AUTO_PREFIXES = new Set(['/dev/', normMountPrefix(HISTORY_PREFIX)])
+const AUTO_PREFIXES = new Set([
+  '/dev/',
+  normMountPrefix(HISTORY_PREFIX),
+  normMountPrefix(BIN_PREFIX),
+])
 const DESCRIPTION_MAX = 120
 
 function isAutoPrefix(prefix: string): boolean {

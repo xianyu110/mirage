@@ -13,6 +13,7 @@
 # ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
 from mirage import Workspace
+from mirage.resource.bin import BIN_PREFIX
 from mirage.resource.history import HISTORY_PREFIX
 from mirage.server.registry import WorkspaceEntry
 from mirage.server.schemas import (MountSummary, SessionSummary,
@@ -20,7 +21,11 @@ from mirage.server.schemas import (MountSummary, SessionSummary,
                                    WorkspaceInternals)
 from mirage.workspace.snapshot.utils import norm_mount_prefix
 
-_AUTO_PREFIXES = {"/dev/", norm_mount_prefix(HISTORY_PREFIX)}
+_AUTO_PREFIXES = {
+    "/dev/",
+    norm_mount_prefix(HISTORY_PREFIX),
+    norm_mount_prefix(BIN_PREFIX),
+}
 _DESCRIPTION_MAX = 120
 
 
