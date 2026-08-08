@@ -67,11 +67,18 @@ def _date_bucket(message: dict[str, Any]) -> str:
 
     The ``Date:`` header wins, because it is the timestamp the sender
     wrote and the one himalaya's date conditions search on (SENTON /
-    SENTSINCE / SENTBEFORE). It is also optional, and a message without
-    it used to fall straight to the epoch, collapsing the mount's only
-    organizing axis into a single 1970 directory. IMAP's own
-    INTERNALDATE (RFC 3501, server-assigned and always present) fills
-    that hole.
+    SENTSINCE / SENTBEFORE).
+
+    It is not, however, something a reader can count on. RFC 5322
+    requires it of a message being *sent*, but a mailbox also holds
+    messages that never went through submission: anything placed by
+    IMAP APPEND (which takes an opaque literal the server does not
+    validate), an importer or a draft saved before it had a send time.
+    Those arrive with no ``Date:`` at all, and a malformed value fails
+    the same way. Every such message used to fall to the epoch,
+    collapsing the mount's only organizing axis into one 1970
+    directory. IMAP's own INTERNALDATE (RFC 3501, assigned by the
+    server, always present) is the timestamp that has no such gap.
 
     Args:
         message (dict): a fetched message carrying ``date`` and
