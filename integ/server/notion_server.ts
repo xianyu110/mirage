@@ -1468,6 +1468,52 @@ async function handle(
     return { status: 200, json: pageOf(rows.map(blockJson), q.get('start_cursor'), size) }
   }
 
+  // Retrieve one block. The children route was here and this one was not,
+  // which is a gap only a client that walks *to* a block notices:
+  // @notionhq/notion-mcp-server reads an inline database by asking for the
+  // block whose id it is, and got a 404 telling it the object did not exist.
+  // A database and a page both answer here, because in Notion the
+  // child_database / child_page block and the thing it points at share an id.
+  if (method === 'GET' && parts.length === 3 && parts[1] === 'blocks') {
+    const id = parts[2] ?? ''
+    const block = (await db.notionBlock.findFirst({
+      where: { workspaceId: ws, id, inTrash: false },
+    })) as BlockRow | null
+    if (block !== null) return { status: 200, json: blockJson(block) }
+    const database = (await db.notionDatabase.findFirst({
+      where: { workspaceId: ws, id },
+    })) as DatabaseRow | null
+    if (database !== null) {
+      return {
+        status: 200,
+        json: {
+          object: 'block',
+          id: database.id,
+          type: 'child_database',
+          has_children: false,
+          child_database: { title: database.title },
+        },
+      }
+    }
+    const page = (await db.notionPage.findFirst({
+      where: { workspaceId: ws, id, inTrash: false },
+    })) as PageRow | null
+    if (page !== null) {
+      const kids = await childrenOf(db, ws, id)
+      return {
+        status: 200,
+        json: {
+          object: 'block',
+          id: page.id,
+          type: 'child_page',
+          has_children: kids.length > 0,
+          child_page: { title: page.titleText },
+        },
+      }
+    }
+    return notFound('block', id)
+  }
+
   if (method === 'POST' && parts.length === 2 && parts[1] === 'search') {
     const results = await searchResults(db, ws, body, apiVersion(req))
     const size = intOr(body.page_size, MAX_PAGE_SIZE)
