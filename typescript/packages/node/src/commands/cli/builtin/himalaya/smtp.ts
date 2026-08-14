@@ -14,10 +14,18 @@
 
 import { loadOptionalPeer } from '@struktoai/mirage-core'
 import type * as Nodemailer from 'nodemailer'
+import { EmailAccessor } from '../../../../accessor/email.ts'
+import { listFolders } from '../../../../core/email/_client.ts'
 import { parseRfc822, type ParsedRfc822 } from '../../../../core/email/_parse.ts'
 import type { EmailConfig } from '../../../../core/email/config.ts'
 
 const transporterCache = new WeakMap<EmailConfig, Nodemailer.Transporter>()
+
+// Where a copy of a sent message goes, in the order a client tries them.
+// The name is not standardized: an IMAP server that predates SPECIAL-USE
+// advertises none of this, so a client probes the conventional spellings
+// and files the copy in the first one that is there.
+const SENT_FOLDERS = ['Sent', 'INBOX.Sent', 'Sent Messages', 'Sent Items']
 
 async function getTransporter(config: EmailConfig): Promise<Nodemailer.Transporter> {
   const existing = transporterCache.get(config)
@@ -34,6 +42,39 @@ async function getTransporter(config: EmailConfig): Promise<Nodemailer.Transport
   })
   transporterCache.set(config, transporter)
   return transporter
+}
+
+/**
+ * Files a copy of a delivered message in the account's sent folder.
+ *
+ * SMTP hands a message to the server and keeps no record of it, so a
+ * client that only sends leaves the sender's own mailbox showing nothing
+ * happened. Every real client -- and Notion's, Gmail's and Toolathlon's
+ * email servers alike -- appends the delivered bytes over IMAP, which is
+ * what makes `Sent` a record of what this account sent rather than an
+ * empty folder.
+ *
+ * The copy is the delivered form: Bcc is already stripped, the way it is
+ * on the wire. An account whose server has no sent folder under any of
+ * the conventional names keeps the old behavior and files nothing, since
+ * there is nowhere to put it.
+ */
+async function fileInSent(config: EmailConfig, delivered: Uint8Array): Promise<void> {
+  const accessor = new EmailAccessor(config)
+  try {
+    const folder = sentFolder(await listFolders(accessor))
+    if (folder === undefined) return
+    const imap = await accessor.getImap()
+    await imap.append(folder, Buffer.from(delivered), ['\\Seen'])
+  } finally {
+    await accessor.close()
+  }
+}
+
+/** The sent folder to use out of the ones a server lists, if any. */
+export function sentFolder(present: readonly string[]): string | undefined {
+  const listed = new Set(present)
+  return SENT_FOLDERS.find((name) => listed.has(name))
 }
 
 /**
@@ -55,10 +96,12 @@ export async function sendRaw(config: EmailConfig, raw: Uint8Array): Promise<Par
   // nodemailer does not read the envelope out of a raw message, so the
   // recipients have to be handed over explicitly. Bcc rides the envelope
   // and is stripped from the bytes, the way an MTA would.
+  const delivered = stripBcc(raw)
   await transporter.sendMail({
-    raw: Buffer.from(stripBcc(raw)),
+    raw: Buffer.from(delivered),
     envelope: { from: parsed.from.email || config.username, to: recipients },
   })
+  await fileInSent(config, delivered)
   return parsed
 }
 

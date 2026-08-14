@@ -13,7 +13,7 @@
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
 import { describe, expect, it } from 'vitest'
-import { bccAddresses, stripBcc } from './smtp.ts'
+import { bccAddresses, sentFolder, stripBcc } from './smtp.ts'
 
 const ENC = new TextEncoder()
 const DEC = new TextDecoder()
@@ -80,5 +80,35 @@ describe('stripBcc', () => {
   it('leaves a headers-only message untouched', () => {
     const raw = ENC.encode('To: a@x')
     expect(DEC.decode(stripBcc(raw))).toBe('To: a@x')
+  })
+})
+
+// A copy of every sent message goes to the account's sent folder, whose
+// name IMAP never standardized, so the conventional spellings are tried
+// in order and a server offering none of them gets no copy.
+describe('sentFolder', () => {
+  it('takes the plain name when the server lists it', () => {
+    expect(sentFolder(['INBOX', 'Sent', 'Trash'])).toBe('Sent')
+  })
+
+  it('falls through to a namespaced one', () => {
+    expect(sentFolder(['INBOX', 'INBOX.Sent'])).toBe('INBOX.Sent')
+  })
+
+  it('prefers the plain name over a namespaced one, whatever the order', () => {
+    expect(sentFolder(['INBOX.Sent', 'Sent'])).toBe('Sent')
+  })
+
+  it('knows the two vendor spellings', () => {
+    expect(sentFolder(['Sent Messages'])).toBe('Sent Messages')
+    expect(sentFolder(['Sent Items'])).toBe('Sent Items')
+  })
+
+  it('is undefined when the server has no sent folder', () => {
+    expect(sentFolder(['INBOX', 'Drafts'])).toBeUndefined()
+  })
+
+  it('does not match a folder that merely contains the word', () => {
+    expect(sentFolder(['INBOX', 'Sent-2024'])).toBeUndefined()
   })
 })

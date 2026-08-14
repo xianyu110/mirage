@@ -12,14 +12,68 @@
 # limitations under the License.
 # ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
+import copy
 from email.message import Message
 from email.parser import BytesParser
 from email.policy import default as default_policy
 
 import aiosmtplib
 
+from mirage.accessor.email import EmailAccessor
+from mirage.core.email._client import list_folders
 from mirage.core.email.config import EmailConfig
 from mirage.resource.secrets import reveal_secret
+
+# Where a copy of a sent message goes, in the order a client tries them.
+# The name is not standardized: an IMAP server that predates SPECIAL-USE
+# advertises none of this, so a client probes the conventional spellings
+# and files the copy in the first one that is there.
+SENT_FOLDERS = ("Sent", "INBOX.Sent", "Sent Messages", "Sent Items")
+
+
+def delivered_form(message: Message) -> Message:
+    """The message as it leaves the server, without Bcc.
+
+    Args:
+        message (Message): the composed message.
+
+    Returns:
+        Message: a copy with the Bcc headers removed, which is what
+            ``aiosmtplib.send`` transmits and therefore what a copy in the
+            sent folder has to be.
+    """
+    copied = copy.copy(message)
+    del copied["Bcc"]
+    del copied["Resent-Bcc"]
+    return copied
+
+
+async def file_in_sent(config: EmailConfig, delivered: Message) -> None:
+    """File a copy of a delivered message in the account's sent folder.
+
+    SMTP hands a message to the server and keeps no record of it, so a
+    client that only sends leaves the sender's own mailbox showing nothing
+    happened. Every real client appends the delivered bytes over IMAP,
+    which is what makes ``Sent`` a record of what this account sent rather
+    than an empty folder.
+
+    An account whose server has no sent folder under any of the
+    conventional names files nothing, since there is nowhere to put it.
+
+    Args:
+        config (EmailConfig): IMAP credentials and host.
+        delivered (Message): the message in the form that was sent.
+    """
+    accessor = EmailAccessor(config)
+    try:
+        present = set(await list_folders(accessor))
+        folder = next((name for name in SENT_FOLDERS if name in present), None)
+        if folder is None:
+            return
+        imap = await accessor.get_imap()
+        await imap.append(delivered.as_bytes(), mailbox=folder, flags="\\Seen")
+    finally:
+        await accessor.close()
 
 
 async def send_raw(config: EmailConfig, raw: bytes) -> Message:
@@ -48,4 +102,5 @@ async def send_raw(config: EmailConfig, raw: bytes) -> Message:
         password=reveal_secret(config.password),
         start_tls=None,
     )
+    await file_in_sent(config, delivered_form(message))
     return message
